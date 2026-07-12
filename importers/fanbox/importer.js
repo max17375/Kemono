@@ -7,43 +7,45 @@ const request2 = require('request')
   .defaults({ encoding: null })
 const { unraw } = require('unraw');
 const nl2br = require('nl2br');
-const Promise = require('bluebird');
 const crypto = require('crypto');
 const retry = require('retry');
-let requestOptions = (key) => {
+
+const requestOptions = (key) => {
   return {
     json: true,
-    headers: { 
+    headers: {
       'cookie': `PHPSESSID=${key}`,
       'origin': 'https://www.pixiv.net'
     }
-  }
+  };
 };
 
-let fileRequestOptions = (key) => {
+const fileRequestOptions = (key) => {
   return {
     encoding: null,
-    headers: { 
+    headers: {
       'cookie': `PHPSESSID=${key}`,
       'origin': 'https://www.pixiv.net',
     }
-  }
+  };
 };
 
 async function scraper(key) {
   parentPort.postMessage('fanbox scraper fired!');
-  let fanboxIndex = await request.get('https://fanbox.pixiv.net/api/plan.listSupporting', requestOptions(key));
-  Promise.map(fanboxIndex.body, async(artist) => {
-    processFanbox(`https://fanbox.pixiv.net/api/post.listCreator?userId=${artist.user.userId}&limit=100`, key)
-  });
+  const fanboxIndex = await request.get('https://fanbox.pixiv.net/api/plan.listSupporting', requestOptions(key));
+  await Promise.all(
+    fanboxIndex.body.map((artist) =>
+      processFanbox(`https://fanbox.pixiv.net/api/post.listCreator?userId=${artist.user.userId}&limit=100`, key)
+    )
+  );
 }
 
 async function processFanbox(url, key) {
-  let data = await request.get(unraw(url), requestOptions(key));
-  await Promise.mapSeries(data.body.items, async(post) => {
+  const data = await request.get(unraw(url), requestOptions(key));
+  for (const post of data.body.items) {
     parentPort.postMessage(post);
-    if (!post.body) return // locked content; nothing to do
-    let postModel = {
+    if (!post.body) continue;
+    const postModel = {
       version: 2,
       service: 'fanbox',
       title: unraw(post.title),
@@ -58,13 +60,13 @@ async function processFanbox(url, key) {
       attachments: []
     };
 
-    let postExists = await posts.findOne({id: post.id, service: 'fanbox'});
-    if (postExists) return;
+    const postExists = await posts.findOne({id: post.id, service: 'fanbox'});
+    if (postExists) continue;
 
-    let filesLocation = 'https://kemono.party/files/fanbox'
-    let attachmentsLocation = 'https://kemono.party/attachments/fanbox'
+    const filesLocation = 'https://kemono.party/files/fanbox';
+    const attachmentsLocation = 'https://kemono.party/attachments/fanbox';
     if (post.body.images) {
-      await Promise.mapSeries(post.body.images, async(image, index) => {
+      for (const [index, image] of post.body.images.entries()) {
         if (index == 0 && !postModel.post_file['name']) {
           const operation = retry.operation({
             retries: 10,
@@ -112,11 +114,11 @@ async function processFanbox(url, key) {
             path: `${attachmentsLocation}/${post.user.userId}/${post.id}/${image.id}.${image.extension}`
           });
         }
-      })
+      }
     }
-    
+
     if (post.body.files) {
-      await Promise.mapSeries(post.body.files, async(file, index) => {
+      for (const [index, file] of post.body.files.entries()) {
         if (index == 0 && !postModel.post_file['name']) {
           const operation = retry.operation({
             retries: 10,
@@ -163,46 +165,48 @@ async function processFanbox(url, key) {
             path: `${attachmentsLocation}/${post.user.userId}/${post.id}/${file.name}.${file.extension}`
           });
         }
-      })
+      }
     }
 
-    await posts.insertOne(postModel)
-  })
+    await posts.insertOne(postModel);
+  }
 
   if (data.body.nextUrl) {
-    processFanbox(data.body.nextUrl, key)
+    await processFanbox(data.body.nextUrl, key);
   }
 }
 
 async function concatenateArticle(body, key) {
   let concatenatedString = '<p>';
   parentPort.postMessage(JSON.stringify(body))
-  await Promise.mapSeries(body.blocks, async(block) => {
-    if (block.type == 'image') {
-      let imageInfo = body.imageMap[block.imageId];
-      const operation = retry.operation({
-        retries: 10,
-        factor: 1,
-        minTimeout: 1000
-      });
-      operation.attempt(async() => {
-        let randomKey = crypto.randomBytes(20).toString('hex');
-        await fs.ensureFile(`${process.env.DB_ROOT}/inline/fanbox/${randomKey}`);
-        request2.get(unraw(imageInfo.originalUrl), fileRequestOptions(key))
-          .on('complete', () => {
-            fs.rename(
-              `${process.env.DB_ROOT}/inline/fanbox/${randomKey}`,
-              `${process.env.DB_ROOT}/inline/fanbox/${imageInfo.id}.${imageInfo.extension}`
-            );
-          })
-          .on('error', err => operation.retry(err))
-          .pipe(fs.createWriteStream(`${process.env.DB_ROOT}/inline/fanbox/${randomKey}`))
-      })
-      concatenatedString += `<img src="https://kemono.party/inline/fanbox/${imageInfo.id}.${imageInfo.extension}"><br>`
-    } else if (block.type == 'p') {
-      concatenatedString += `${unraw(block.text)}<br>`
+  try {
+    for (const block of body.blocks) {
+      if (block.type == 'image') {
+        const imageInfo = body.imageMap[block.imageId];
+        const operation = retry.operation({
+          retries: 10,
+          factor: 1,
+          minTimeout: 1000
+        });
+        operation.attempt(async() => {
+          let randomKey = crypto.randomBytes(20).toString('hex');
+          await fs.ensureFile(`${process.env.DB_ROOT}/inline/fanbox/${randomKey}`);
+          request2.get(unraw(imageInfo.originalUrl), fileRequestOptions(key))
+            .on('complete', () => {
+              fs.rename(
+                `${process.env.DB_ROOT}/inline/fanbox/${randomKey}`,
+                `${process.env.DB_ROOT}/inline/fanbox/${imageInfo.id}.${imageInfo.extension}`
+              );
+            })
+            .on('error', err => operation.retry(err))
+            .pipe(fs.createWriteStream(`${process.env.DB_ROOT}/inline/fanbox/${randomKey}`))
+        })
+        concatenatedString += `<img src="https://kemono.party/inline/fanbox/${imageInfo.id}.${imageInfo.extension}"><br>`
+      } else if (block.type == 'p') {
+        concatenatedString += `${unraw(block.text)}<br>`
+      }
     }
-  }).catch(() => {})
+  } catch (_) {}
   concatenatedString += '</p>'
   return concatenatedString
 }
