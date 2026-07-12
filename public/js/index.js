@@ -130,10 +130,10 @@ async function main() {
 
       let marthaView = document.getElementById('recent-view');
       let avatar;
-      if (!user.included) {
-        avatar = user.included[0].attributes.avatar_photo_url;
+      if (user.included && user.included.length > 0) {
+        avatar = user.included[0].attributes?.avatar_photo_url;
       } else {
-        avatar = user.data.attributes.image_url;
+        avatar = user.data?.attributes?.image_url ?? '/static/images/default-avatar.png';
       }
       marthaView.innerHTML += `
         <div class="recent-row">
