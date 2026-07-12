@@ -15,24 +15,28 @@ function debounce(func, wait, immediate) {
 
 async function searchUpdate() {
   let marthaView = document.getElementById('recent-view');
+  const query = document.getElementById('search-input').value.trim();
+  if (!query) return;
   marthaView.innerHTML = ''
-  const query = document.getElementById('search-input').value;
   const searchData = await fetch(`/api/lookup?q=${encodeURIComponent(query)}`);
   const results = await searchData.json();
   results.map(async(userId) => {
     let userType = 'Patreon'
     const userData = await fetch(`/proxy/user/${userId}`);
     const user = await userData.json();
+    const avatar = user.included && user.included[0]
+      ? user.included[0].attributes.avatar_photo_url
+      : user.data.attributes.image_url;
     marthaView.innerHTML += `
       <div class="recent-row">
         <div class="recent-row-container">
           <a href="/user/${userId}">
-          <div class="avatar" style="background-image: url('${user.included[0].attributes.avatar_photo_url}');"></div>
+          <div class="avatar" style="background-image: url('${avatar}');"></div>
           </a>
           <div style="display: inline-block">
             <a class="link-reset" href="/user/${userId}">
               <p><b>${user.data.attributes.vanity || user.data.attributes.full_name}</b></p>
-            </
+            </a>
             <a class="link-reset" href="/user/${userId}">
               <p>${userType}</p>
             </a>
@@ -57,7 +61,7 @@ async function searchUpdate() {
           <div style="display: inline-block">
             <a class="link-reset" href="/gumroad/user/${userId}">
               <p><b>${user.name}</b></p>
-            </
+            </a>
             <a class="link-reset" href="/gumroad/user/${userId}">
               <p>${userType}</p>
             </a>
@@ -83,7 +87,7 @@ async function searchUpdate() {
             <div style="display: inline-block">
               <a class="link-reset" href="/fanbox/user/${userId}">
                 <p><b>${unraw.unraw(user.body.user.name)}</b></p>
-              </
+              </a>
               <a class="link-reset" href="/fanbox/user/${userId}">
                 <p>${userType}</p>
               </a>
@@ -100,6 +104,7 @@ async function searchUpdate() {
     let userType = 'Discord'
     const userData = await fetch(`/proxy/discord/server/${userId}`);
     const user = await userData.json();
+    if (!user[0]) return;
     marthaView.innerHTML += `
       <div class="recent-row">
         <div class="recent-row-container">
@@ -109,7 +114,7 @@ async function searchUpdate() {
           <div style="display: inline-block">
             <a class="link-reset" href="/discord/server/${userId}">
               <p><b>${user[0].name}</b></p>
-            </
+            </a>
             <a class="link-reset" href="/discord/server/${userId}">
               <p>${userType}</p>
             </a>
