@@ -60,12 +60,14 @@ async function indexer() {
         break;
       }
       default: {
-        await lookup.insertOne({
-          version: post.version,
-          service: 'patreon',
-          id: post.user,
-          name: await getPatreonName(post.user)
-        });
+        try {
+          await lookup.insertOne({
+            version: post.version,
+            service: 'patreon',
+            id: post.user,
+            name: await getPatreonName(post.user)
+          });
+        } catch (_) {}
       }
     }
   }
